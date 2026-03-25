@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 
-from config import OPENAI_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
-from db_tool import (
+from src.config import OPENAI_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
+from src.db_tool import (
     get_product_sales_trend,
     get_negative_reviews,
     get_all_reviews,
