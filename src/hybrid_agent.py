@@ -1,14 +1,13 @@
-from pathlib import Path
-
 from langchain_openai import ChatOpenAI
-from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
 
 from src.config import (
     OPENAI_API_KEY,
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
-    EMBEDDING_MODEL_NAME
+    EMBEDDING_MODEL_NAME,
+    CHROMA_DIR
 )
 
 from src.db_tool import (
@@ -19,8 +18,7 @@ from src.db_tool import (
     get_all_products
 )
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-VECTOR_DIR = BASE_DIR / "chroma_db"
+from src.data_processor import ensure_vector_store
 
 
 def create_llm():
@@ -33,18 +31,20 @@ def create_llm():
 
 
 def load_vector_store():
+    ensure_vector_store()
+
     embeddings = HuggingFaceEmbeddings(
         model_name=EMBEDDING_MODEL_NAME
     )
 
     db = Chroma(
-        persist_directory=str(VECTOR_DIR),
+        persist_directory=str(CHROMA_DIR),
         embedding_function=embeddings
     )
     return db
 
 
-def extract_product_name(user_query: str, products: list) -> str | None:
+def extract_product_name(user_query: str, products: list):
     for product in products:
         if product in user_query:
             return product
@@ -64,13 +64,10 @@ def detect_intent(user_query: str) -> str:
     return "general_analysis"
 
 
-def retrieve_knowledge(user_query: str, product_name: str | None, top_k: int = 3):
+def retrieve_knowledge(user_query: str, product_name=None, top_k: int = 3):
     db = load_vector_store()
 
-    if product_name:
-        search_query = f"{product_name} {user_query}"
-    else:
-        search_query = user_query
+    search_query = f"{product_name} {user_query}" if product_name else user_query
 
     retriever = db.as_retriever(search_kwargs={"k": top_k})
     docs = retriever.invoke(search_query)
@@ -90,8 +87,7 @@ def format_docs(docs) -> str:
     return "\n\n".join(parts)
 
 
-def build_prompt(user_query: str, product_name: str | None, intent: str, structured_data: str,
-                 knowledge_data: str) -> str:
+def build_prompt(user_query: str, product_name, intent: str, structured_data: str, knowledge_data: str) -> str:
     return f"""
 你是企业级业务分析助手，请结合结构化数据和企业知识文档，回答用户问题。
 
@@ -123,7 +119,7 @@ def build_prompt(user_query: str, product_name: str | None, intent: str, structu
 """
 
 
-def handle_sales_analysis(user_query: str, product_name: str) -> str:
+def handle_sales_analysis(user_query: str, product_name: str):
     sales_df = get_product_sales_trend(product_name)
     reviews_df = get_negative_reviews(product_name)
     docs = retrieve_knowledge(user_query, product_name, top_k=3)
@@ -147,10 +143,15 @@ def handle_sales_analysis(user_query: str, product_name: str) -> str:
         knowledge_data=knowledge_data
     )
     response = llm.invoke(prompt)
-    return response.content
+
+    return {
+        "answer": response.content,
+        "data": sales_df,
+        "docs": docs
+    }
 
 
-def handle_review_analysis(user_query: str, product_name: str) -> str:
+def handle_review_analysis(user_query: str, product_name: str):
     reviews_df = get_all_reviews(product_name)
     docs = retrieve_knowledge(user_query, product_name, top_k=3)
 
@@ -170,10 +171,15 @@ def handle_review_analysis(user_query: str, product_name: str) -> str:
         knowledge_data=knowledge_data
     )
     response = llm.invoke(prompt)
-    return response.content
+
+    return {
+        "answer": response.content,
+        "data": reviews_df,
+        "docs": docs
+    }
 
 
-def handle_refund_ranking(user_query: str) -> str:
+def handle_refund_ranking(user_query: str):
     refund_df = get_top_refund_products()
     docs = retrieve_knowledge(user_query, None, top_k=3)
 
@@ -193,7 +199,12 @@ def handle_refund_ranking(user_query: str) -> str:
         knowledge_data=knowledge_data
     )
     response = llm.invoke(prompt)
-    return response.content
+
+    return {
+        "answer": response.content,
+        "data": refund_df,
+        "docs": docs
+    }
 
 
 def answer_question(user_query: str):
@@ -202,79 +213,26 @@ def answer_question(user_query: str):
     intent = detect_intent(user_query)
 
     if intent == "refund_ranking":
-        refund_df = get_top_refund_products()
-        docs = retrieve_knowledge(user_query, None, top_k=3)
-
-        result = handle_refund_ranking(user_query)
-
-        return {
-            "answer": result,
-            "data": refund_df,
-            "docs": docs
-        }
+        return handle_refund_ranking(user_query)
 
     if product_name is None:
         docs = retrieve_knowledge(user_query, None, top_k=3)
-
-        result = "未识别到产品，以下为相关知识："
-
+        llm = create_llm()
+        prompt = build_prompt(
+            user_query=user_query,
+            product_name=None,
+            intent="knowledge_only",
+            structured_data="未提供结构化数据。",
+            knowledge_data=format_docs(docs)
+        )
+        response = llm.invoke(prompt)
         return {
-            "answer": result,
+            "answer": response.content,
             "data": None,
             "docs": docs
         }
 
     if intent == "review_analysis":
-        reviews_df = get_all_reviews(product_name)
-        docs = retrieve_knowledge(user_query, product_name, top_k=3)
+        return handle_review_analysis(user_query, product_name)
 
-        result = handle_review_analysis(user_query, product_name)
-
-        return {
-            "answer": result,
-            "data": reviews_df,
-            "docs": docs
-        }
-
-    if intent in ["sales_analysis", "general_analysis"]:
-        sales_df = get_product_sales_trend(product_name)
-        docs = retrieve_knowledge(user_query, product_name, top_k=3)
-
-        result = handle_sales_analysis(user_query, product_name)
-
-        return {
-            "answer": result,
-            "data": sales_df,
-            "docs": docs
-        }
-
-    return {
-        "answer": "暂时无法处理该问题。",
-        "data": None,
-        "docs": []
-    }
-def main():
-    print("Hybrid Agent 启动（输入 quit 退出）")
-
-    while True:
-        user_query = input("\n请输入问题：").strip()
-
-        if user_query.lower() in ["quit", "exit"]:
-            print("系统退出")
-            break
-
-        if not user_query:
-            print("问题不能为空，请重新输入。")
-            continue
-
-        try:
-            result = answer_question(user_query)
-            print("\n分析结果：")
-            print(result)
-        except Exception as e:
-            print("\n程序报错：")
-            print(e)
-
-
-if __name__ == "__main__":
-    main()
+    return handle_sales_analysis(user_query, product_name)
