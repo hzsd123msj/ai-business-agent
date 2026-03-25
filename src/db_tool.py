@@ -1,12 +1,18 @@
 import sqlite3
 import pandas as pd
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DB_PATH = BASE_DIR / "business.db"
+from src.config import DB_PATH
+from src.init_db import init_database
+
+
+def ensure_database():
+    if not DB_PATH.exists():
+        init_database()
 
 
 def run_query(sql: str) -> pd.DataFrame:
+    ensure_database()
+
     conn = sqlite3.connect(DB_PATH)
     try:
         df = pd.read_sql_query(sql, conn)
@@ -65,16 +71,3 @@ def get_all_products() -> list:
     """
     df = run_query(sql)
     return df["product_name"].tolist()
-
-
-if __name__ == "__main__":
-    print("可用产品：", get_all_products())
-
-    print("\n=== AI营销助手销量趋势 ===")
-    print(get_product_sales_trend("AI营销助手"))
-
-    print("\n=== AI营销助手差评 ===")
-    print(get_negative_reviews("AI营销助手"))
-
-    print("\n=== 退款率最高产品 ===")
-    print(get_top_refund_products())
