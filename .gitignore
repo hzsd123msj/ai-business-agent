@@ -4,5 +4,5 @@ __pycache__/
 .env
 chroma_db/
 business.db
-.streamlit/
 .idea/
+.streamlit/
