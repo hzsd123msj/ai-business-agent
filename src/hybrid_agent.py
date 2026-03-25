@@ -4,14 +4,14 @@ from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from config import (
+from src.config import (
     OPENAI_API_KEY,
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
     EMBEDDING_MODEL_NAME
 )
 
-from db_tool import (
+from src.db_tool import (
     get_product_sales_trend,
     get_negative_reviews,
     get_all_reviews,
