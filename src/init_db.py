@@ -1,21 +1,17 @@
 import sqlite3
 import pandas as pd
-from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-DATA_DIR = BASE_DIR / "data"
-DB_PATH = BASE_DIR / "business.db"
+from src.config import DATA_DIR, DB_PATH
 
-def main():
+
+def init_database():
     sales_path = DATA_DIR / "sales_data.csv"
     reviews_path = DATA_DIR / "reviews.csv"
 
     if not sales_path.exists():
-        print(f"未找到文件: {sales_path}")
-        return
+        raise FileNotFoundError(f"未找到文件: {sales_path}")
     if not reviews_path.exists():
-        print(f"未找到文件: {reviews_path}")
-        return
+        raise FileNotFoundError(f"未找到文件: {reviews_path}")
 
     conn = sqlite3.connect(DB_PATH)
 
@@ -28,5 +24,6 @@ def main():
     conn.close()
     print(f"数据库初始化完成: {DB_PATH}")
 
+
 if __name__ == "__main__":
-    main()
+    init_database()
